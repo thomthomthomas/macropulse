@@ -54,18 +54,18 @@ macropulse/
 
 | Table | What it holds |
 |---|---|
-| `market_series` | Static metadata — the 9 series being tracked and what they mean |
+| `market_series` | Static metadata |
 | `observations` | Every daily value ever pulled, keyed by series + date |
 | `daily_snapshot` | One row per trading day: all the changes, signals, regime, summary |
 | `news` | Scored headlines, deduped by URL and near-duplicate title |
-| `update_runs` | A log of each collector run — success/partial/failed, what broke |
+| `update_runs` | A log of each collector run  |
 
 
 ## Timing and edge cases
 
 The daily job runs twice on weekdays: 07:00 SGT (right after the US close) and again at 21:00 SGT, since FRED sometimes publishes a series a few hours late. Both runs are safe to repeat — everything upserts.
 
-The snapshot date comes from the data itself, not the server's clock — a run at 07:00 SGT is still "yesterday" in UTC, so dating off the clock would mislabel the day. Daily changes always compare the two most recent *valid* observations, so weekends and holidays don't create gaps or fake zeroes. WTI in particular tends to lag a day or two on FRED, so each metric card shows its own observation date rather than assuming everything is from the same day.
+The snapshot date comes from the data itself, not the server's clock, so dating off the clock would mislabel the day. Daily changes always compare the two most recent *valid* observations, so weekends and holidays don't create gaps or fake zeroes. WTI in particular tends to lag a day or two on FRED, so each metric card shows its own observation date rather than assuming everything is from the same day.
 
 If one series or one news topic fails to fetch, the run keeps going — it only fails outright (and emails you) if something critical like the 2Y, 10Y, Fed target, or S&P is missing. Old headlines clear out after 30 days; the site only shows the last 48 hours anyway. GitHub pauses scheduled workflows after 60 days without repo activity, so there's a step that pushes an empty commit once a month to keep the schedule alive.
 
