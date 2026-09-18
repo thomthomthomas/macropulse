@@ -81,7 +81,7 @@ def build_snapshot(series, headlines=()):
     regime = classify_regime(snap)
     snap["signals"] = signals
     snap["regime"] = regime
-    snap["summary"] = summarize(signals, regime, spx)
+    snap["summary"] = summarize(signals, regime, snap["sp500_change_pct"])
     snap["generated_at"] = datetime.now(timezone.utc).isoformat()
     return snap
 
