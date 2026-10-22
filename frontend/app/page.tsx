@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getDashboard } from "@/lib/data";
 import { fixed, longDate, sgtTime, signed } from "@/lib/format";
 import { nextFomc } from "@/lib/fomc";
+import type { Snapshot, UpdateRun } from "@/lib/types";
 import MetricStrip from "@/components/MetricStrip";
 import WhyMarketsMoved from "@/components/WhyMarketsMoved";
 import RatesChart from "@/components/RatesChart";
@@ -17,8 +18,22 @@ function fomcLabel() {
   return `Next FOMC ${f(m.start)}–${f(m.end)}`;
 }
 
+// Longest normal gap between updates is Fri 13:00 UTC -> Sun 23:00 UTC (58h).
+const STALE_HOURS = 72;
+
+function staleness(s: Snapshot | null, run: UpdateRun | null | undefined) {
+  if (!s) return null;
+  const ageH = (Date.now() - new Date(s.generated_at).getTime()) / 3_600_000;
+  const lastFailed = run?.status === "failed" && run.finished_at != null
+    && new Date(run.finished_at) > new Date(s.generated_at);
+  if (!lastFailed && ageH < STALE_HOURS) return null;
+  const when = lastFailed ? ` The latest update (${sgtTime(run!.finished_at)}) failed.` : "";
+  return `Figures are from the US session of ${longDate(s.snapshot_date)}, last refreshed ${sgtTime(s.generated_at)}.${when}`;
+}
+
 export default async function Home() {
-  const { snapshot: s, news, rates, mode, error } = await getDashboard();
+  const { snapshot: s, lastRun, news, rates, mode, error } = await getDashboard();
+  const stale = mode === "live" ? staleness(s, lastRun) : null;
 
   return (
     <main className="wrap">
@@ -34,6 +49,9 @@ export default async function Home() {
       )}
       {mode === "error" && (
         <p className="banner" role="alert"><strong>Couldn&apos;t reach the database.</strong> {error}. Check the Supabase environment variables and that schema.sql has been run.</p>
+      )}
+      {stale && (
+        <p className="banner banner-warn" role="status"><strong>Data may be out of date.</strong> {stale}</p>
       )}
       {mode === "live" && !s && (
         <p className="banner"><strong>No snapshot yet.</strong> Run the &ldquo;Daily Macro Update&rdquo; workflow once from the GitHub Actions tab.</p>

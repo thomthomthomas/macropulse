@@ -38,8 +38,14 @@ export type Article = {
 
 export type RatePoint = { date: string; y2?: number; y10?: number };
 
+export type UpdateRun = {
+  started_at: string | null; finished_at: string | null;
+  status: "ok" | "partial" | "failed" | null; failed_series: string[] | null;
+};
+
 export type Dashboard = {
   snapshot: Snapshot | null;
+  lastRun?: UpdateRun | null;
   news: Article[];
   rates: RatePoint[];
   mode: "live" | "demo" | "error";
