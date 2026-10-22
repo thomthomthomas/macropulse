@@ -102,7 +102,17 @@ def run():
     except Exception as e:
         log(f"news store FAILED {e}")
 
-    snap = build_snapshot(series, headlines)
+    try:
+        snap = build_snapshot(series, headlines)
+    except RuntimeError as e:
+        # Record the failed run so the website can say the data is stale
+        try:
+            log_run({"started_at": started.isoformat(), "status": "failed",
+                     "failed_series": failures, "headline_count": len(headlines)})
+        except Exception as le:
+            log(f"run log FAILED {le}")
+        log(f"FAILED {e}")
+        sys.exit(1)
     upsert_snapshot(snap)
     log(f"Snapshot stored for {snap['snapshot_date']}: {snap['summary']}")
 
