@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { demoDashboard } from "./demo";
-import type { Article, Dashboard, RatePoint, Snapshot } from "./types";
+import type { Article, Dashboard, RatePoint, Snapshot, UpdateRun } from "./types";
 
 function client() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -15,7 +15,7 @@ export async function getDashboard(): Promise<Dashboard> {
 
   try {
     const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-    const [snapRes, newsRes, ratesRes] = await Promise.all([
+    const [snapRes, newsRes, ratesRes, runRes] = await Promise.all([
       sb.from("daily_snapshot").select("*").order("snapshot_date", { ascending: false }).limit(1).maybeSingle(),
       sb.from("news").select("id,title,url,domain,published_at,topic,score")
         .gte("published_at", since)
@@ -27,6 +27,8 @@ export async function getDashboard(): Promise<Dashboard> {
         .in("series_id", ["DGS2", "DGS10"])
         .order("observation_date", { ascending: false })
         .limit(800),
+      sb.from("update_runs").select("started_at,finished_at,status,failed_series")
+        .order("finished_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
     if (snapRes.error) throw snapRes.error;
     if (newsRes.error) throw newsRes.error;
@@ -44,6 +46,8 @@ export async function getDashboard(): Promise<Dashboard> {
     return {
       mode: "live",
       snapshot: (snapRes.data as Snapshot) ?? null,
+      // Health info is optional: a missing row or error never blocks the page
+      lastRun: runRes.error ? null : ((runRes.data as UpdateRun) ?? null),
       news: pickTopNews((newsRes.data ?? []) as Article[]),
       rates,
     };

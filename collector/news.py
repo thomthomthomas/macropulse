@@ -67,7 +67,7 @@ def fetch_topic(topic, query, retries=2):
         except ValueError:
             if attempt == retries:
                 raise RuntimeError(f"GDELT non-JSON response: {r.text[:120]}")
-            time.sleep(8)
+            time.sleep(15 * (attempt + 1))  # GDELT throttles shared CI IPs
 
     rows = []
     for a in data.get("articles", []):
@@ -93,7 +93,7 @@ def fetch_news(log=print):
     articles = []
     for i, (topic, query) in enumerate(QUERIES.items()):
         if i:
-            time.sleep(6)  # GDELT asks for <= 1 request per 5 seconds
+            time.sleep(10)  # GDELT asks for <= 1 request per 5 seconds; leave headroom
         try:
             rows = fetch_topic(topic, query)
             log(f"news:{topic} {len(rows)} articles")

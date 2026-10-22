@@ -83,3 +83,73 @@ def test_build_snapshot_survives_missing_series():
 def test_build_snapshot_refuses_empty():
     with pytest.raises(RuntimeError):
         build_snapshot({})
+
+
+def test_parse_csv_handles_both_headers_and_missing():
+    from fred import parse_csv
+    text = "observation_date,DGS10\n2026-09-14,4.10\n2026-09-15,\n2026-09-16,4.30\n"
+    out = parse_csv("DGS10", text)
+    assert [o["observation_date"] for o in out] == ["2026-09-16", "2026-09-14"]
+    assert parse_csv("DGS10", "DATE,DGS10\n2026-09-16,.\n2026-09-17,4.2\n")[0]["value"] == 4.2
+
+def test_parse_csv_rejects_html():
+    from fred import parse_csv
+    with pytest.raises(RuntimeError, match="unexpected CSV header"):
+        parse_csv("DGS10", "<!DOCTYPE html><html>blocked</html>")
+
+def test_get_series_falls_back_to_csv(monkeypatch):
+    import fred
+
+    class Resp:
+        def __init__(self, text, ctype):
+            self.text, self.status_code, self.headers = text, 200, {"Content-Type": ctype}
+        def raise_for_status(self):
+            pass
+        def json(self):
+            import json
+            return json.loads(self.text)
+
+    def fake_get(url, **kw):
+        if url == fred.BASE_URL:
+            return Resp("<html>Access denied</html>", "text/html")
+        return Resp("observation_date,DGS10\n2026-09-15,4.38\n2026-09-16,4.31\n", "text/csv")
+
+    monkeypatch.setenv("FRED_API_KEY", "x")
+    monkeypatch.setattr(fred.requests, "get", fake_get)
+    monkeypatch.setattr(fred.time, "sleep", lambda s: None)
+    out = fred.get_series("DGS10", limit=1)
+    assert out == [{"series_id": "DGS10", "observation_date": "2026-09-16", "value": 4.31}]
+
+def test_maintenance_page_raises_fred_unavailable_without_retrying(monkeypatch):
+    import fred
+    calls = []
+
+    class Resp:
+        status_code, headers = 200, {"Content-Type": "text/html"}
+        text = "<!doctype html><html><head><title>Site Maintenance | St. Louis Fed</title>"
+        def raise_for_status(self):
+            pass
+        def json(self):
+            raise ValueError("not json")
+
+    def fake_get(url, **kw):
+        calls.append(url)
+        return Resp()
+
+    monkeypatch.setenv("FRED_API_KEY", "x")
+    monkeypatch.setattr(fred.requests, "get", fake_get)
+    monkeypatch.setattr(fred.time, "sleep", lambda s: None)
+    with pytest.raises(fred.FredUnavailable):
+        fred.get_series("DGS10", limit=1)
+    assert calls == [fred.BASE_URL, fred.CSV_URL]  # one API try, one CSV try
+
+def test_update_skips_remaining_series_once_fred_is_down(monkeypatch):
+    import fred, update
+    calls = []
+    def down(sid, **kw):
+        calls.append(sid)
+        raise fred.FredUnavailable("down")
+    monkeypatch.setattr(fred, "get_series", down)
+    series, failures, fred_down = update.update_market_data(store=False)
+    assert fred_down and len(calls) == 1
+    assert failures == list(update.SERIES) and all(v == [] for v in series.values())

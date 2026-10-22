@@ -10,6 +10,7 @@
      a rate rise is not "good" or "bad" by itself. */
   --up: #e0a84e;
   --down: #6fa3d8;
+  --warn: #e5534b; /* system status only, never market direction */
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --serif: "Newsreader", Georgia, "Times New Roman", serif;
 }
@@ -40,6 +41,7 @@ a { color: inherit; }
 .banner { margin-top: 16px; padding: 10px 14px; border: 1px solid var(--rule);
   border-left: 3px solid var(--up); background: var(--panel); font-size: 14px; color: var(--muted); }
 .banner strong { color: var(--text); font-weight: 500; }
+.banner-warn { border-left-color: var(--warn); }
 
 /* metric strip */
 .strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
