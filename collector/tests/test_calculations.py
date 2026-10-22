@@ -119,3 +119,37 @@ def test_get_series_falls_back_to_csv(monkeypatch):
     monkeypatch.setattr(fred.time, "sleep", lambda s: None)
     out = fred.get_series("DGS10", limit=1)
     assert out == [{"series_id": "DGS10", "observation_date": "2026-09-16", "value": 4.31}]
+
+def test_maintenance_page_raises_fred_unavailable_without_retrying(monkeypatch):
+    import fred
+    calls = []
+
+    class Resp:
+        status_code, headers = 200, {"Content-Type": "text/html"}
+        text = "<!doctype html><html><head><title>Site Maintenance | St. Louis Fed</title>"
+        def raise_for_status(self):
+            pass
+        def json(self):
+            raise ValueError("not json")
+
+    def fake_get(url, **kw):
+        calls.append(url)
+        return Resp()
+
+    monkeypatch.setenv("FRED_API_KEY", "x")
+    monkeypatch.setattr(fred.requests, "get", fake_get)
+    monkeypatch.setattr(fred.time, "sleep", lambda s: None)
+    with pytest.raises(fred.FredUnavailable):
+        fred.get_series("DGS10", limit=1)
+    assert calls == [fred.BASE_URL, fred.CSV_URL]  # one API try, one CSV try
+
+def test_update_skips_remaining_series_once_fred_is_down(monkeypatch):
+    import fred, update
+    calls = []
+    def down(sid, **kw):
+        calls.append(sid)
+        raise fred.FredUnavailable("down")
+    monkeypatch.setattr(fred, "get_series", down)
+    series, failures, fred_down = update.update_market_data(store=False)
+    assert fred_down and len(calls) == 1
+    assert failures == list(update.SERIES) and all(v == [] for v in series.values())

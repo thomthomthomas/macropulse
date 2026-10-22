@@ -14,6 +14,14 @@ BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
 # (e.g. it starts serving an HTML block/maintenance page with a 200 status).
 CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 
+class FredUnavailable(RuntimeError):
+    """FRED is serving its maintenance page: an outage, not a bug on our side."""
+
+
+def _is_maintenance(text):
+    return "site maintenance" in text[:2000].lower()
+
+
 HEADERS = {
     "User-Agent": "MacroPulse/1.0 (+https://github.com/thomthomthomas/macropulse)",
     "Accept": "application/json, text/csv;q=0.9",
@@ -27,6 +35,10 @@ def get_series(series_id, limit=20, observation_start=None, retries=3):
     except Exception as api_error:
         try:
             obs = _get_series_csv(series_id, limit, observation_start)
+        except FredUnavailable:
+            if isinstance(api_error, FredUnavailable):
+                raise FredUnavailable("FRED API and CSV download are both down for maintenance")
+            raise RuntimeError(f"API: {api_error} | CSV fallback: FRED maintenance page")
         except Exception as csv_error:
             raise RuntimeError(f"API: {api_error} | CSV fallback: {csv_error}") from csv_error
         if not obs:
@@ -59,11 +71,15 @@ def _get_series_api(series_id, limit, observation_start, retries):
             try:
                 payload = r.json()
             except ValueError:
+                if _is_maintenance(r.text):
+                    raise FredUnavailable("FRED API is down for maintenance")
                 # Surface what FRED actually sent instead of a bare JSONDecodeError
                 snippet = " ".join(r.text[:120].split())
                 raise RuntimeError(f"non-JSON response (HTTP {r.status_code}, "
                                    f"{r.headers.get('Content-Type', '?')}): {snippet!r}")
             return parse_observations(series_id, payload.get("observations", []))
+        except FredUnavailable:
+            raise  # retrying a maintenance page just wastes time
         except Exception as e:  # network blip / 429 / 5xx / HTML page
             last_error = e
             time.sleep(2 * (attempt + 1))
@@ -76,6 +92,8 @@ def _get_series_csv(series_id, limit, observation_start):
         params["cosd"] = observation_start
     r = requests.get(CSV_URL, params=params, headers=HEADERS, timeout=60)
     r.raise_for_status()
+    if _is_maintenance(r.text):
+        raise FredUnavailable("FRED CSV download is down for maintenance")
     obs = parse_csv(series_id, r.text)
     return obs[:limit] if limit else obs
 

@@ -17,9 +17,14 @@ from log import log
 
 
 def update_market_data(store=True):
-    from fred import get_series
-    all_series, failures = {}, []
+    """Returns (series, failed_ids, fred_down)."""
+    from fred import get_series, FredUnavailable
+    all_series, failures, fred_down = {}, [], False
     for sid, (_label, start, limit) in SERIES.items():
+        if fred_down:  # no point asking again; every series would get the same page
+            failures.append(sid)
+            all_series[sid] = []
+            continue
         try:
             obs = get_series(sid, limit=limit, observation_start=start)
             if store:
@@ -28,11 +33,16 @@ def update_market_data(store=True):
                 upsert_observations(obs if limit else obs[:400])
             all_series[sid] = obs
             log(f"{sid} OK ({len(obs)} obs, latest {latest_date(obs)})")
+        except FredUnavailable as e:
+            fred_down = True
+            failures.append(sid)
+            all_series[sid] = []
+            log(f"{sid} FAILED {e}; skipping remaining series")
         except Exception as e:
             failures.append(sid)
             all_series[sid] = []
             log(f"{sid} FAILED {e}")
-    return all_series, failures
+    return all_series, failures, fred_down
 
 
 def build_snapshot(series, headlines=()):
@@ -92,7 +102,7 @@ def run():
     from database import upsert_snapshot, upsert_news, prune_news, log_run
     from news import fetch_news
 
-    series, failures = update_market_data(store=True)
+    series, failures, fred_down = update_market_data(store=True)
 
     headlines = fetch_news(log=log)
     try:
@@ -112,6 +122,12 @@ def run():
         except Exception as le:
             log(f"run log FAILED {le}")
         log(f"FAILED {e}")
+        if fred_down:
+            # A FRED outage isn't a bug here: keep the run green, flag it in the
+            # Actions summary, and let the website's stale-data banner tell readers.
+            print("::warning title=FRED down for maintenance::No market data today; "
+                  "headlines were stored and the site keeps the last snapshot.", flush=True)
+            return
         sys.exit(1)
     upsert_snapshot(snap)
     log(f"Snapshot stored for {snap['snapshot_date']}: {snap['summary']}")
